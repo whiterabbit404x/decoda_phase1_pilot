@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: decoda_infra
+      POSTGRES_USER: decoda
+      POSTGRES_PASSWORD: change-me-in-secrets
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decoda -d decoda_infra"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://decoda:change-me-in-secrets@postgres:5432/decoda_infra
+      SESSION_COOKIE_SECURE: "true"
+      PUBLIC_BASE_URL: https://infra.decodasecurity.com
+    command: ["./scripts/start-web.sh"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://decoda:change-me-in-secrets@postgres:5432/decoda_infra
+      DEFAULT_WORKER_NAME: worker-1
+    command: ["./scripts/start-worker.sh"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+
+volumes:
+  postgres_data:
